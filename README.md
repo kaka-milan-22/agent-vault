@@ -53,7 +53,7 @@ cat config.yaml
 
 Secrets are stored in an encrypted local vault (`~/.agent-vault/`). When reading files, known secret values are replaced with `<agent-vault:key>` placeholders. When writing, placeholders are restored to real values. The agent never sees or transmits your secrets.
 
-High-entropy strings not in the vault (like API keys added manually) are automatically detected and redacted as `<agent-vault:UNVAULTED:sha256:XXXXXXXX>`.
+High-entropy strings not in the vault (like API keys added manually) are automatically detected and redacted as `<agent-vault:UNVAULTED:sha256:XXXXXXXXXXXX>` (12-char sha256 prefix).
 
 ## Command reference
 

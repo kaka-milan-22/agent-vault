@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { redact, restore, restoreUnvaulted, extractPlaceholders } from "../../src/redact.js";
 
 function sha256Prefix(s: string): string {
-  return createHash("sha256").update(s).digest("hex").slice(0, 8);
+  return createHash("sha256").update(s).digest("hex").slice(0, 12);
 }
 
 // --- redact() Phase 1: known vault values ---

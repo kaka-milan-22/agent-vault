@@ -99,7 +99,7 @@ program
     let finalContent = result.content;
     let unvaultedCount = 0;
 
-    if (/<agent-vault:UNVAULTED:sha256:[a-f0-9]{8}>/.test(finalContent)) {
+    if (/<agent-vault:UNVAULTED:sha256:[a-f0-9]{8,16}>/.test(finalContent)) {
       if (!existsSync(filePath)) {
         console.error("✗ Error: Content contains UNVAULTED placeholders but the target file does not exist yet");
         console.error("  The user should vault these secrets first: agent-vault set <key>");
@@ -511,7 +511,7 @@ program
     const redacted = redact(raw, secretValues);
     const redactedLines = redacted.split("\n");
     for (let i = 0; i < redactedLines.length; i++) {
-      const match = redactedLines[i].match(/<agent-vault:UNVAULTED:sha256:([a-f0-9]{8})>/g);
+      const match = redactedLines[i].match(/<agent-vault:UNVAULTED:sha256:([a-f0-9]{8,16})>/g);
       if (match) {
         for (const m of match) {
           results.push({ line: i + 1, key: m.replace(/<agent-vault:|>/g, ""), type: "unvaulted-suspect" });

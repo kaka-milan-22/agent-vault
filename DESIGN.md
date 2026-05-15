@@ -129,7 +129,7 @@ This matches the format agents are accustomed to from Read tools, making it a dr
 $ agent-vault read .env
      1	DATABASE_URL=<agent-vault:database-url>
      2	REDIS_URL=redis://localhost:6379
-     3	NEW_API_KEY=<agent-vault:UNVAULTED:sha256:a8f3c9d1>
+     3	NEW_API_KEY=<agent-vault:UNVAULTED:sha256:a8f3c9d14e2b>
 ```
 
 The agent sees `UNVAULTED` and knows to tell the user to vault it (see Flow 3). The sha256 prefix is a fingerprint so the agent can refer to it without seeing the actual value.
@@ -441,7 +441,7 @@ User:   "Read my .env and help me set up the docker-compose"
 Agent:  [executes] agent-vault read .env
         → DATABASE_URL=<agent-vault:database-url>
         → REDIS_URL=redis://localhost:6379
-        → NEW_API_KEY=<agent-vault:UNVAULTED:sha256:a8f3c9d1>
+        → NEW_API_KEY=<agent-vault:UNVAULTED:sha256:a8f3c9d14e2b>
 
 Agent:  I can read most of your .env safely, but there's an unvaulted
         secret on line 3 (NEW_API_KEY). Please vault it first:
@@ -572,7 +572,7 @@ port: 8080'
 
 - Key names: lowercase alphanumeric + hyphens, e.g. `telegram-bot-token`
 - Regex: `<agent-vault:([a-z0-9](?:[a-z0-9-]*[a-z0-9])?)>`
-- Unvaulted marker: `<agent-vault:UNVAULTED:sha256:XXXXXXXX>` (8-char prefix of sha256)
+- Unvaulted marker: `<agent-vault:UNVAULTED:sha256:XXXXXXXXXXXX>` (12-char / 48-bit prefix of sha256; legacy 8-char placeholders from <= v0.4.1 still resolve on write-back)
 
 **Why `<agent-vault:...>`?**
 
