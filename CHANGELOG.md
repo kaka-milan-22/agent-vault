@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.2] — 2026-05-15
+
 ### Changed
 
 - **UNVAULTED placeholder fingerprint expanded from 8 to 12 hex chars** (32-bit → 48-bit prefix).
