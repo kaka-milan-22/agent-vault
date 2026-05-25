@@ -9,8 +9,9 @@ import {
   initVault,
   requireVault,
   setSecret,
+  setRequirePresence,
   getSecretValue,
-  getSecretMeta,
+  getSecretMetaNoReveal,
   hasSecret,
   listSecrets,
   removeSecret,
@@ -18,9 +19,27 @@ import {
 } from "./vault.js";
 import { redact, restore, restoreUnvaulted } from "./redact.js";
 import { requireTTY, requireStdoutTTY, promptSecret, confirm } from "./tty.js";
+import { PresenceError } from "./presence.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf-8"));
+
+// Top-level handler for PresenceError thrown from decrypt paths (read / write
+// / scan / get). Without this, an "uncaught" PresenceError would dump a stack
+// trace; instead we render the user-facing message clearly and exit 1.
+process.on("uncaughtException", (err: unknown) => {
+  if (err instanceof PresenceError) {
+    console.error(`✗ ${err.message}`);
+    process.exit(1);
+  }
+  // Restore default node behavior for unrelated errors.
+  if (err instanceof Error) {
+    console.error(err.stack ?? err.message);
+  } else {
+    console.error(err);
+  }
+  process.exit(1);
+});
 
 const program = new Command();
 
@@ -176,7 +195,11 @@ program
     }
 
     for (const s of secrets) {
-      console.log(s.key);
+      if (s.requirePresence) {
+        console.log(`${s.key}  [presence]`);
+      } else {
+        console.log(s.key);
+      }
     }
   });
 
@@ -192,104 +215,189 @@ program
   .option("--from-env <var>", "Read value from environment variable")
   .option("--stdin", "Read value from stdin pipe")
   .option("--force", "Allow overwriting an existing key without prompt (only honored with --stdin, since stdin is consumed and confirm() is unavailable)")
-  .action(async (key: string, opts: { desc?: string; fromEnv?: string; stdin?: boolean; force?: boolean }) => {
-    // TTY check first — this is the structural agent-isolation gate, and it
-    // must fire before any branch that could probe vault state or accept
-    // attacker-controlled input. Mode determines which TTY signal to use:
-    // --stdin consumes stdin, so we fall back to stdout TTY for that mode.
-    if (opts.stdin) {
-      requireStdoutTTY("agent-vault set");
-    } else {
-      requireTTY("agent-vault set");
-    }
+  .option(
+    "--require-presence",
+    "Gate every decrypt of this key behind macOS Touch ID. See `agent-vault require-presence --help`.",
+  )
+  .option(
+    "--reason <reason>",
+    "Short text shown in the Touch ID prompt (only with --require-presence). Defaults to \"Reveal <key>\".",
+  )
+  .action(
+    async (
+      key: string,
+      opts: {
+        desc?: string;
+        fromEnv?: string;
+        stdin?: boolean;
+        force?: boolean;
+        requirePresence?: boolean;
+        reason?: string;
+      },
+    ) => {
+      // TTY check first — this is the structural agent-isolation gate, and it
+      // must fire before any branch that could probe vault state or accept
+      // attacker-controlled input. Mode determines which TTY signal to use:
+      // --stdin consumes stdin, so we fall back to stdout TTY for that mode.
+      if (opts.stdin) {
+        requireStdoutTTY("agent-vault set");
+      } else {
+        requireTTY("agent-vault set");
+      }
 
-    // Validate key format
-    if (!/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(key)) {
-      console.error("✗ Invalid key format. Use lowercase alphanumeric + hyphens (e.g. my-api-key)");
+      // Validate key format
+      if (!/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(key)) {
+        console.error("✗ Invalid key format. Use lowercase alphanumeric + hyphens (e.g. my-api-key)");
+        process.exit(1);
+      }
+
+      if (opts.reason && !opts.requirePresence) {
+        console.error("✗ --reason can only be used together with --require-presence");
+        process.exit(1);
+      }
+
+      // Check if key already exists. Use the no-reveal metadata variant so we
+      // don't trigger a Touch ID prompt just to compute the overwrite warning —
+      // overwriting replaces ciphertext, it doesn't expose the old plaintext.
+      const alreadyExists = vaultExists() && hasSecret(key);
+      const existingMeta = alreadyExists ? getSecretMetaNoReveal(key) : null;
+
+      let value: string;
+
+      if (opts.fromEnv) {
+        value = process.env[opts.fromEnv] ?? "";
+        if (!value) {
+          console.error(`✗ Environment variable $${opts.fromEnv} is not set or empty`);
+          process.exit(1);
+        }
+        if (alreadyExists) {
+          const desc = existingMeta?.desc ? ` (${existingMeta.desc})` : "";
+          const gate = existingMeta?.requirePresence ? " [presence]" : "";
+          process.stderr.write(`⚠ "${key}"${desc}${gate} already exists (set ${existingMeta?.createdAt})\n`);
+          const yes = await confirm("Overwrite?");
+          if (!yes) {
+            console.log("Cancelled");
+            return;
+          }
+        }
+      } else if (opts.stdin) {
+        // Pre-check for overwrite BEFORE consuming stdin, so we don't drain
+        // the user's value before refusing.
+        if (alreadyExists && !opts.force) {
+          console.error(`✗ Refusing to overwrite "${key}" via --stdin without --force`);
+          console.error(`  Pass --force to overwrite, or use the interactive set command for a confirm prompt.`);
+          process.exit(1);
+        }
+
+        value = readFileSync(0, "utf-8").trim();
+        if (!value) {
+          console.error("✗ No input received from stdin");
+          process.exit(1);
+        }
+        if (alreadyExists) {
+          const gate = existingMeta?.requirePresence ? " [presence]" : "";
+          process.stderr.write(`⚠ Overwriting "${key}"${gate} (--force)\n`);
+        }
+      } else {
+        // Interactive mode — TTY already verified above.
+        if (opts.desc) {
+          process.stderr.write(`${opts.desc}\n`);
+        }
+
+        // Warn and confirm if key already exists
+        if (alreadyExists) {
+          const desc = existingMeta?.desc ? ` (${existingMeta.desc})` : "";
+          const gate = existingMeta?.requirePresence ? " [presence]" : "";
+          process.stderr.write(`⚠ "${key}"${desc}${gate} already exists (set ${existingMeta?.createdAt})\n`);
+          const yes = await confirm("Overwrite?");
+          if (!yes) {
+            console.log("Cancelled");
+            return;
+          }
+        }
+
+        try {
+          value = await promptSecret(`Enter value for "${key}": `);
+        } catch {
+          console.error("\n✗ Cancelled");
+          process.exit(1);
+        }
+
+        if (!value) {
+          console.error("✗ Empty value, nothing saved");
+          process.exit(1);
+        }
+      }
+
+      // Auto-init vault if needed
+      if (!vaultExists()) {
+        initVault();
+        process.stderr.write("✓ Initialized vault at ~/.agent-vault/\n");
+      }
+
+      setSecret(key, value, {
+        desc: opts.desc,
+        requirePresence: opts.requirePresence,
+        presenceReason: opts.reason,
+      });
+
+      const gateNote = opts.requirePresence ? " (Touch ID required for decrypt)" : "";
+      if (opts.fromEnv) {
+        console.log(`✓ Saved "${key}" (from $${opts.fromEnv})${gateNote}`);
+      } else {
+        console.log(`✓ Saved "${key}"${gateNote}`);
+      }
+    },
+  );
+
+program
+  .command("require-presence")
+  .description("Toggle Touch ID gate on an existing key (macOS only)")
+  .argument("<key>", "Secret key name")
+  .option("--on", "Enable the gate")
+  .option("--off", "Disable the gate")
+  .option(
+    "--reason <reason>",
+    "Short text shown in the Touch ID prompt when --on is set. Defaults to \"Reveal <key>\".",
+  )
+  .action(async (key: string, opts: { on?: boolean; off?: boolean; reason?: string }) => {
+    requireTTY("agent-vault require-presence");
+    requireVault();
+
+    if (opts.on === opts.off) {
+      console.error("✗ Specify exactly one of --on or --off");
+      process.exit(1);
+    }
+    if (opts.reason && opts.off) {
+      console.error("✗ --reason is only meaningful with --on");
       process.exit(1);
     }
 
-    // Check if key already exists (used across all modes)
-    const alreadyExists = vaultExists() && hasSecret(key);
-    const existingMeta = alreadyExists ? getSecretMeta(key) : null;
+    const existing = getSecretMetaNoReveal(key);
+    if (!existing) {
+      console.error(`✗ Secret "${key}" not found`);
+      process.exit(1);
+    }
 
-    let value: string;
+    const enabling = !!opts.on;
+    if (enabling === !!existing.requirePresence) {
+      console.log(`"${key}" already ${enabling ? "requires" : "does not require"} presence; nothing to do.`);
+      return;
+    }
 
-    if (opts.fromEnv) {
-      value = process.env[opts.fromEnv] ?? "";
-      if (!value) {
-        console.error(`✗ Environment variable $${opts.fromEnv} is not set or empty`);
-        process.exit(1);
-      }
-      if (alreadyExists) {
-        const desc = existingMeta?.desc ? ` (${existingMeta.desc})` : "";
-        process.stderr.write(`⚠ "${key}"${desc} already exists (${existingMeta?.length} chars, set ${existingMeta?.createdAt})\n`);
-        const yes = await confirm("Overwrite?");
-        if (!yes) {
-          console.log("Cancelled");
-          return;
-        }
-      }
-    } else if (opts.stdin) {
-      // Pre-check for overwrite BEFORE consuming stdin, so we don't drain
-      // the user's value before refusing.
-      if (alreadyExists && !opts.force) {
-        console.error(`✗ Refusing to overwrite "${key}" via --stdin without --force`);
-        console.error(`  Pass --force to overwrite, or use the interactive set command for a confirm prompt.`);
-        process.exit(1);
-      }
-
-      value = readFileSync(0, "utf-8").trim();
-      if (!value) {
-        console.error("✗ No input received from stdin");
-        process.exit(1);
-      }
-      if (alreadyExists) {
-        process.stderr.write(`⚠ Overwriting "${key}" (was ${existingMeta?.length} chars, --force)\n`);
-      }
-    } else {
-      // Interactive mode — TTY already verified above.
-      if (opts.desc) {
-        process.stderr.write(`${opts.desc}\n`);
-      }
-
-      // Warn and confirm if key already exists
-      if (alreadyExists) {
-        const desc = existingMeta?.desc ? ` (${existingMeta.desc})` : "";
-        process.stderr.write(`⚠ "${key}"${desc} already exists (${existingMeta?.length} chars, set ${existingMeta?.createdAt})\n`);
-        const yes = await confirm("Overwrite?");
-        if (!yes) {
-          console.log("Cancelled");
-          return;
-        }
-      }
-
-      try {
-        value = await promptSecret(`Enter value for "${key}": `);
-      } catch {
-        console.error("\n✗ Cancelled");
-        process.exit(1);
-      }
-
-      if (!value) {
-        console.error("✗ Empty value, nothing saved");
-        process.exit(1);
+    if (enabling) {
+      process.stderr.write(
+        `⚠ Enabling Touch ID gate on "${key}". Every future decrypt (sign / read / write substitution) will prompt for fingerprint.\n`,
+      );
+      const yes = await confirm("Proceed?", true);
+      if (!yes) {
+        console.log("Cancelled");
+        return;
       }
     }
 
-    // Auto-init vault if needed
-    if (!vaultExists()) {
-      initVault();
-      process.stderr.write("✓ Initialized vault at ~/.agent-vault/\n");
-    }
-
-    setSecret(key, value, opts.desc);
-
-    if (opts.fromEnv) {
-      console.log(`✓ Saved "${key}" (from $${opts.fromEnv})`);
-    } else {
-      console.log(`✓ Saved "${key}"`);
-    }
+    setRequirePresence(key, enabling, opts.reason);
+    console.log(`✓ "${key}" ${enabling ? "now requires Touch ID" : "no longer requires Touch ID"}`);
   });
 
 program
@@ -318,8 +426,9 @@ program
       return;
     }
 
-    // Metadata only
-    const meta = getSecretMeta(key);
+    // Metadata only — use the no-reveal variant so listing the description /
+    // creation time of a gated key doesn't prompt for Touch ID.
+    const meta = getSecretMetaNoReveal(key);
     if (!meta) {
       console.error(`✗ Secret "${key}" not found`);
       process.exit(1);
@@ -328,7 +437,10 @@ program
     console.log(`Key:      ${key}`);
     if (meta.desc) console.log(`Desc:     ${meta.desc}`);
     console.log(`Set at:   ${meta.createdAt}`);
-    console.log(`Length:   ${meta.length} chars`);
+    if (meta.requirePresence) {
+      console.log(`Presence: required (Touch ID)`);
+      if (meta.presenceReason) console.log(`Reason:   ${meta.presenceReason}`);
+    }
   });
 
 program

@@ -20,8 +20,28 @@ jobs:
       - run: npm run build
       - run: npm test
 
-  publish:
+  build-native-macos:
+    runs-on: macos-latest
     needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Touch ID helper (universal binary)
+        run: npm run build:native
+
+      - name: Sanity check
+        run: |
+          test -x bin/agent-vault-presence
+          file bin/agent-vault-presence | grep -q "Mach-O universal"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: agent-vault-presence-darwin
+          path: bin/agent-vault-presence
+          if-no-files-found: error
+
+  publish:
+    needs: [test, build-native-macos]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -34,6 +54,14 @@ jobs:
           node-version: 24
           cache: npm
           registry-url: https://registry.npmjs.org
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: agent-vault-presence-darwin
+          path: bin/
+
+      - name: Restore exec bit (zipped artifacts lose mode)
+        run: chmod +x bin/agent-vault-presence
 
       - run: npm ci
       - run: npm run build

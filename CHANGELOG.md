@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-05-25
+
+### Added
+
+- **Per-key `--require-presence` flag** that gates secret decryption behind macOS Touch ID.
+
+  Marked secrets cannot be revealed — by `write` substitution, `get --reveal`, `read` redaction, or any other decrypt path — without a successful biometric verification on the Secure Enclave. This closes the structural gap where any process under the user's UID (a prompt-injected LLM agent, a compromised npm postinstall hook, a malicious VS Code extension) could previously call `agent-vault write <fifo> --content "<agent-vault:KEY>"` and exfiltrate plaintext silently. With the gate enabled, every such attempt blocks on a system-level Touch ID dialog that user-space code cannot subvert.
+
+  New CLI surface:
+  - `agent-vault set <key> --require-presence [--reason "<text>"]` — enable when first storing
+  - `agent-vault require-presence <key> --on [--reason "<text>"]` — retrofit existing keys (no re-encryption)
+  - `agent-vault require-presence <key> --off` — disable
+  - `agent-vault list` marks gated keys with `[presence]` (JSON: `requirePresence: true`)
+  - `agent-vault get <key>` shows `Presence: required (Touch ID)` for gated keys (without decrypting)
+
+  Implementation:
+  - Per-secret `requirePresence: boolean` + optional `presenceReason: string` in `vault.json` metadata
+  - All decrypt paths in `src/vault.ts` funnel through a new `decryptSecret()` wrapper that checks the flag and invokes `requirePresence()` before any plaintext exists in the process
+  - `getAllSecretValues` (used by `read` / `scan`) batches gated keys into a **single** Touch ID prompt to avoid training users to mash-tap through serial prompts
+  - Native helper: `bin/agent-vault-presence`, a small Swift Mach-O (universal arm64 + x86_64) that drives `LAContext.evaluatePolicy(.deviceOwnerAuthentication, ...)` and exits 0 / 1 / 2. Built via `npm run build:native` on macOS; shipped in the npm tarball
+
+  Known limits (full discussion in [`docs/PRESENCE.md`](docs/PRESENCE.md)):
+  - v1 helper is **unsigned** — an attacker with write access to the install path can replace it. v2 will codesign with Apple Developer ID
+  - Touch ID falls back to login password after 5 failed attempts (Apple-enforced UX). v2 will add `--strict-biometric-only`
+  - Process-memory dump immediately after a successful auth can still extract plaintext
+
+  Non-macOS platforms fail-closed with `platform-unsupported`. The `--require-presence` API name is platform-neutral so future Linux (`pam_u2f` / polkit) and Windows (Hello) support land without breaking changes.
+
+### Changed
+
+- **Vault schema versioned**: `vault.json` now includes a `version: 1` field. Legacy v0 vaults (no version field) load without changes and are stamped on next save. No user migration required.
+- **Atomic `vault.json` writes**: `saveVaultData` now writes to `vault.json.tmp` and `rename()`s into place, preventing torn writes under power loss or `kill -9`.
+- `setSecret()` now accepts an options object: `setSecret(key, value, { desc, requirePresence, presenceReason })`. The legacy 3-arg form `setSecret(key, value, "desc")` continues to work unchanged.
+- `get <key>` (no `--reveal`) now uses metadata-only access and does NOT prompt for Touch ID even on gated keys — only `--reveal` does.
+
 ## [0.4.2] — 2026-05-15
 
 ### Changed

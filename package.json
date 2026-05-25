@@ -1,6 +1,6 @@
 {
   "name": "@botiverse/agent-vault",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "description": "Keep your secrets hidden from AI agents.",
   "license": "Apache-2.0",
   "type": "module",
@@ -9,11 +9,14 @@
   },
   "files": [
     "dist",
+    "bin",
+    "native/macos",
     "skills",
     "README.md"
   ],
   "scripts": {
     "build": "tsc",
+    "build:native": "bash native/macos/build.sh",
     "dev": "tsx src/cli.ts",
     "start": "node dist/cli.js",
     "test": "vitest run",
