@@ -45,6 +45,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      # OIDC token for npm Trusted Publisher — npm registry verifies it against
+      # the publisher configured at npmjs.com/package/.../access. No NPM_TOKEN
+      # secret involved, no registry-url needed in setup-node.
       id-token: write
     steps:
       - uses: actions/checkout@v4
@@ -53,7 +56,6 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          registry-url: https://registry.npmjs.org
 
       - uses: actions/download-artifact@v4
         with:
