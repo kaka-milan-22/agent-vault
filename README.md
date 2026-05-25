@@ -158,6 +158,24 @@ agent-vault get my-key --reveal
 
 `--reveal` additionally checks that stdout is a TTY — you cannot pipe secret values.
 
+#### `agent-vault set <key> --require-presence`
+
+Gate this secret behind macOS Touch ID. Every subsequent decrypt (`write` substitution, `get --reveal`, `read` of a file mentioning it) blocks on a Secure Enclave biometric prompt — a LLM agent under prompt injection can call `agent-vault read` all it likes, but you have to physically touch the sensor for plaintext to flow.
+
+```bash
+agent-vault set wallet/mnemonic --require-presence \
+    --reason "Sign Ethereum transaction"
+```
+
+Toggle on existing keys without re-entering the secret:
+
+```bash
+agent-vault require-presence wallet/mnemonic --on --reason "Sign Ethereum transaction"
+agent-vault require-presence wallet/mnemonic --off
+```
+
+`agent-vault list` marks gated keys with `[presence]`. macOS only in v1 — see [`docs/PRESENCE.md`](docs/PRESENCE.md) for the full threat model, what's defended against, and what isn't.
+
 #### `agent-vault rm <key>`
 
 Remove a secret from the vault. Asks for confirmation.
@@ -256,6 +274,7 @@ Living in the home directory means secrets are shared across all projects and ar
 
 - **Secret values never appear in safe command output** — enforced by code, not convention
 - **TTY requirement on sensitive commands** — prevents agents from calling `set` / `get --reveal` even through prompt injection
+- **Optional Touch ID gate (`--require-presence`)** — for high-value secrets, every decrypt blocks on macOS Secure Enclave biometric verification. See [`docs/PRESENCE.md`](docs/PRESENCE.md).
 - **High-entropy detection** — unvaulted secrets in files are automatically redacted on read
 - **Vault outside project tree** — lives in `~/.agent-vault/`, never at risk of git commit
 - **Encrypted at rest** — AES-256-GCM with per-value encryption

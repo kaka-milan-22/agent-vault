@@ -3,6 +3,11 @@ dist/
 .agent-vault/
 *.tgz
 
+# Native binaries (built by native/macos/build.sh, packed via npm files but
+# never committed — keep bin/.gitkeep so the directory exists in the repo).
+bin/*
+!bin/.gitkeep
+
 # Build / test artifacts
 coverage/
 *.tsbuildinfo

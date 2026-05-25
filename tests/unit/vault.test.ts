@@ -80,11 +80,11 @@ describe("initVault", () => {
     expect(existsSync(join(tempDir, "vault.key"))).toBe(true);
   });
 
-  it("vault.json contains { secrets: {} }", async () => {
+  it("vault.json is stamped with version: 1 and an empty secrets map", async () => {
     const { initVault } = await loadVault();
     initVault();
     const data = JSON.parse(readFileSync(join(tempDir, "vault.json"), "utf-8"));
-    expect(data).toEqual({ secrets: {} });
+    expect(data).toEqual({ version: 1, secrets: {} });
   });
 
   it("vault.key is 64 hex characters (32 bytes)", async () => {
@@ -320,8 +320,12 @@ describe("getAllSecretValues", () => {
 
 describe("error paths", () => {
   it("loadMasterKey exits when vault.key is missing", async () => {
-    const { initVault, getSecretValue } = await loadVault();
+    const { initVault, setSecret, getSecretValue } = await loadVault();
     initVault();
+    // Set a secret first so getSecretValue actually needs the master key to
+    // decrypt (early-return path for missing keys would otherwise skip the
+    // master-key load).
+    setSecret("k", "value-12345678");
     // Delete the key file
     const { unlinkSync } = await import("node:fs");
     unlinkSync(join(tempDir, "vault.key"));
