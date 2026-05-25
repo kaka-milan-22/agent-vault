@@ -25,8 +25,10 @@ When AI agents help you set up services, secrets like API keys and tokens flow t
 ## Install
 
 ```bash
-npm install -g @botiverse/agent-vault
+npm install -g @kaka-milan-22/agent-vault
 ```
+
+> **Migrating from `@botiverse/agent-vault`?** This package is the continuation of the work previously published as `@botiverse/agent-vault@0.4.0`. Maintenance moved to a new scope starting at `0.5.0`. The `@botiverse/agent-vault` package on npm is no longer updated — uninstall it and install from this scope to get the Touch ID gate and everything else from 0.5.0 onward.
 
 ## Quick start
 

@@ -7,7 +7,7 @@
 // thin so the security-relevant surface stays in the signed/auditable helper.
 //
 // Why a child process and not a Node native module: agent-vault has zero
-// native dependencies, and we want to keep `npm i -g @botiverse/agent-vault`
+// native dependencies, and we want to keep `npm i -g @kaka-milan-22/agent-vault`
 // a pure JavaScript install with no node-gyp / prebuilt-binary matrix in the
 // hot path. The helper is a small, single-purpose Mach-O shipped in the
 // tarball; this module pays one fork()/exec() per gated decrypt.

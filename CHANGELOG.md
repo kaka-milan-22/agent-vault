@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.5.0] — 2026-05-25
 
+### Changed
+
+- **Renamed npm package: `@botiverse/agent-vault` → `@kaka-milan-22/agent-vault`.** The previous scope was owned by the original maintainer; continued development moves to this scope so the maintainer of the GitHub repository can ship updates. Codebase and on-disk vault format are 100% compatible — users migrating from `@botiverse/agent-vault@0.4.0` only need to `npm uninstall -g @botiverse/agent-vault && npm install -g @kaka-milan-22/agent-vault`. Existing `~/.agent-vault/` data is untouched.
+
 ### Added
 
 - **Per-key `--require-presence` flag** that gates secret decryption behind macOS Touch ID.
